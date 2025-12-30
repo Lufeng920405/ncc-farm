@@ -4,22 +4,22 @@ import pandas as pd
 
 st.set_page_config(page_title="NCC 农场管理", layout="wide")
 
-# --- 数据读取函数 (带自动容错) ---
+# --- 替换你的 load_data 函数 ---
 def load_data(file_name):
-    try:
-        # 尝试多种编码和格式读取
-        df = pd.read_csv(file_name, encoding='utf-8-sig', on_bad_lines='skip')
-        # 如果第一行是空行，自动清理
-        if df.columns[0].startswith('Unnamed'):
-            df.columns = df.iloc[0]
-            df = df[1:]
-        return df.reset_index(drop=True)
-    except Exception as e:
-        st.warning(f"文件 {file_name} 读取受阻，正在尝试基础模式...")
+    encodings = ['utf-8-sig', 'utf-8', 'gb18030', 'gbk', 'latin1']
+    for enc in encodings:
         try:
-            return pd.read_csv(file_name, encoding='gbk')
-        except:
-            return pd.DataFrame()
+            # 增加 error_bad_lines=False 防止个别行格式不对导致整个文件打不开
+            df = pd.read_csv(file_name, encoding=enc, on_bad_lines='skip')
+            # 如果读取成功且有数据，直接返回
+            if not df.empty:
+                return df.reset_index(drop=True)
+        except Exception:
+            continue
+    # 如果所有编码都失败，返回一个带提示的空表
+    return pd.DataFrame(columns=["⚠️文件格式有误，请联系老板"])
+
+# 后面代码保持不变...
 
 # 加载数据
 inventory = load_data("warehouse_inventory.csv")
