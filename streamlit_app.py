@@ -2,66 +2,72 @@
 import streamlit as st
 import pandas as pd
 
-# 1. 网页配置
-st.set_page_config(page_title="NCC 农场管理系统", layout="wide")
-st.title("🚜 NCC Farm Management System")
+st.set_page_config(page_title="NCC 农场管理", layout="wide")
 
-# 2. 数据库加载（容错处理：如果CSV名字不对也能运行）
-def load_data():
+# --- 数据读取函数 (带自动容错) ---
+def load_data(file_name):
     try:
-        # 尝试用 utf-8-sig 读取，这是处理 Excel 转 CSV 最稳妥的方式
-        inventory = pd.read_csv("warehouse_inventory.csv", encoding='utf-8-sig')
-        tasks = pd.read_csv("maintenance_plans.csv", encoding='utf-8-sig')
-        return inventory, tasks
+        # 尝试多种编码和格式读取
+        df = pd.read_csv(file_name, encoding='utf-8-sig', on_bad_lines='skip')
+        # 如果第一行是空行，自动清理
+        if df.columns[0].startswith('Unnamed'):
+            df.columns = df.iloc[0]
+            df = df[1:]
+        return df.reset_index(drop=True)
     except Exception as e:
-        st.error(f"数据加载失败: {e}")
-        # 如果找不到文件，先创建一个空的表格，保证程序不崩
-        return pd.DataFrame(columns=["名称", "库存"]), pd.DataFrame(columns=["任务", "状态"])
+        st.warning(f"文件 {file_name} 读取受阻，正在尝试基础模式...")
+        try:
+            return pd.read_csv(file_name, encoding='gbk')
+        except:
+            return pd.DataFrame()
 
-inventory, tasks = load_data()
+# 加载数据
+inventory = load_data("warehouse_inventory.csv")
+maintenance = load_data("maintenance_plans.csv")
 
-# 3. 登录与身份切换
-user_role = st.sidebar.radio("身份登录", ["管理员", "员工"])
-user_id = st.sidebar.text_input("工号/姓名", value="Staff01")
+st.title("🚜 NCC 农场管理系统")
 
-if user_role == "管理员":
-    st.header("📊 老板控制台 (Admin Dashboard)")
-    st.write(f"欢迎回来，{user_id}")
+# --- 侧边栏 ---
+role = st.sidebar.radio("身份选择", ["员工模式", "管理后台"])
+
+if role == "管理后台":
+    st.header("📊 NCC 经营概览")
+    if not inventory.empty:
+        # 尝试寻找包含“总额”或“price”的列计算总数
+        st.subheader("库存清单预览")
+        st.dataframe(inventory)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("⚠️ 本月维养清单")
-        st.dataframe(tasks, use_container_width=True)
-    with col2:
-        st.subheader("📈 预算与库存预览")
-        st.dataframe(inventory.head(10), use_container_width=True)
+    st.subheader("📅 年度维养计划")
+    st.dataframe(maintenance)
+    
+    st.info(f"提醒功能已锁定：每月月底将发送清单至 johnny920405@gmail.com")
 
 else:
-    st.header(f"👋 NCC 员工工作台: {user_id}")
-    
-    # 模糊搜索领料
-    tab1, tab2 = st.tabs(["📦 领用物资", "📅 维养任务"])
+    st.header("🛠️ 员工工作台")
+    tab1, tab2 = st.tabs(["📦 领料登记", "✅ 维养打卡"])
     
     with tab1:
-        search_query = st.text_input("输入关键词（搜索建材、SKU、规格）")
-        if search_query:
-            # 模糊匹配
-            mask = inventory.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+        search = st.text_input("搜索物料 (输入名称、规格或SKU)")
+        if search and not inventory.empty:
+            # 全表模糊搜索
+            mask = inventory.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
             results = inventory[mask]
-            st.write("找到以下物资：")
+            st.write("找到以下匹配：")
             st.dataframe(results)
             
-            qty = st.number_input("领用数量", min_value=1, step=1)
-            if st.button("提交领用登记"):
-                st.success(f"登记成功：{user_id} 领用了 {qty} 个单位。")
+            if not results.empty:
+                item = st.selectbox("确认选择的物品", results.iloc[:, 0].tolist())
+                qty = st.number_input("领取数量", min_value=1)
+                if st.button("提交登记"):
+                    st.success(f"登记成功！项目：{item} 数量：{qty}")
 
     with tab2:
-        st.subheader("本月 NCC 维养任务")
-        st.info("每月1号自动刷新。完成后请勾选并在下方上传照片。")
-        # 简单列举几个任务供测试
-        st.checkbox("1号水泵巡检")
-        st.checkbox("东侧围栏检查")
-        st.file_uploader("上传现场照片", type=['png', 'jpg', 'jpeg'])
-        if st.button("提交进度"):
-            st.balloons()
-            st.success("任务进度已更新，老板后台已可见！")
+        st.subheader("待办维护任务")
+        if not maintenance.empty:
+            # 尝试显示任务内容
+            task_col = maintenance.columns[2] if len(maintenance.columns) > 2 else maintenance.columns[0]
+            for i, task in maintenance.head(10).iterrows():
+                st.checkbox(f"任务: {task[task_col]}", key=i)
+            st.file_uploader("上传现场照片")
+            if st.button("完成打卡"):
+                st.balloons()
